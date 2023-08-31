@@ -57,8 +57,11 @@ module axi_llc_tag_store #(
   /// corresponding tag storage/PLRU SRAM macro failed the test.
   output way_ind_t   tbist_res_o,
   /// BIST output is valid.
-  output logic       tbist_valid_o
+  output logic       tbist_valid_o,
+
 );
+
+  // assign pipeline_hit = hit_valid_s && res_ready && ~wb_ind;
 
   // typedef, because we use in this module many signals with the width of SetAssiciativity
   typedef logic [Cfg.IndexLength-1:0] index_t; // index type (equals the address for sram)
@@ -122,9 +125,9 @@ module axi_llc_tag_store #(
   // Bist Signals for PLRU and Tag Storage SRAMs
   logic       bist_valid_o, plru_bist_valid_o;
   way_ind_t   bist_res_o, plru_bist_res_o;
-  
-  
 
+  logic wb_ind;
+  
   // macro control
   always_comb begin : proc_macro_ctrl
     // default assignments
@@ -149,6 +152,8 @@ module axi_llc_tag_store #(
     // generation request
     gen_valid    = 1'b0;
     bist_valid   = 1'b0;
+
+    wb_ind = '0;
 
     if (busy_q) begin
       
@@ -187,7 +192,7 @@ module axi_llc_tag_store #(
             end
 
             // Do we have to write back something?
-            if (res_valid && res_ready) begin
+            if (res_valid && ready_i) begin // don't pipeline the ready through the spill register, since we need to have plru and tag/store lookup in same cycle
               if (res.hit) begin
                 // This is a hit
                 if (req_q.dirty && !tag_dit[bin_ind]) begin
@@ -201,6 +206,7 @@ module axi_llc_tag_store #(
                                 tag: req_q.tag
                               };
                   switch_busy = 1'b1;
+                  wb_ind = 1'b1;
                 end else begin
                   // Noting to write back, do we have a new LOOKUP request?
                   if (valid_i && (req_i.mode == axi_llc_pkg::Lookup)) begin
@@ -227,6 +233,7 @@ module axi_llc_tag_store #(
                             };
                 // Go back to idle.
                 switch_busy = 1'b1;
+                wb_ind = 1'b1;
               end
             end
           end
@@ -243,6 +250,7 @@ module axi_llc_tag_store #(
               ram_index   = req_q.index;
               ram_wdata   = tag_data_t'{default: '0};
               switch_busy = 1'b1;
+              wb_ind = 1'b1;
             end
           end
         default : /* default */;
@@ -254,7 +262,7 @@ module axi_llc_tag_store #(
         // There is a request to the tag store.
         switch_busy = 1'b1;
         load_req    = 1'b1;
-
+        
         // Make the requests to the tag macros.
         unique case (req_i.mode)
           axi_llc_pkg::Bist: begin
@@ -379,7 +387,7 @@ module axi_llc_tag_store #(
     .clk_i,
     .rst_ni,
     .evict_i        ( evict_req     ),
-    .hit_i	     ( hit_req	      ),
+    .hit_i	        ( hit_req	      ),
     .bist_i         ( bist_req      ),
     .res_indicator  ( hit_inp       ),
     .tag_valid_i    ( tag_val       ),
@@ -440,6 +448,8 @@ module axi_llc_tag_store #(
     end
   end
 
+  assign valid_o = res_valid;
+
   // Output spill register for breaking timing path
   spill_register #(
     .T       ( store_res_t                 ),
@@ -450,7 +460,7 @@ module axi_llc_tag_store #(
     .valid_i ( res_valid ),
     .ready_o ( res_ready ),
     .data_i  ( res       ),
-    .valid_o ( valid_o   ),
+    .valid_o ( /*valid_o*/),
     .ready_i ( ready_i   ),
     .data_o  ( res_o     )
   );

@@ -88,7 +88,7 @@ module axi_llc_hit_miss #(
   input  cnt_t     cnt_down_i,
   // bist aoutput
   output way_ind_t bist_res_o,
-  output logic     bist_valid_o
+  output logic     bist_valid_o,
 );
   `include "common_cells/registers.svh"
   localparam int unsigned IndexBase = Cfg.ByteOffsetLength + Cfg.BlockOffsetLength;
@@ -141,6 +141,8 @@ module axi_llc_hit_miss #(
   cnt_t  cnt_up;
   logic  cnt_stall;
   logic  to_miss;
+
+  // modify load_busy to be (hit_valid_s_out && ~wb_ind) ? 1'b0:1'b1; // this indicates that there is a current plru write going on and there won't be any writeback to the tag store (thus we can pipeline next tag store read)
 
   // Flipflops
   logic  busy_d,    busy_q, load_busy; // we have a valid descriptor in the unit
@@ -416,9 +418,14 @@ module axi_llc_hit_miss #(
   );
 
   // registers
-  `FFLARN(busy_q, busy_d, load_busy, '0, clk_i, rst_ni)
-  `FFLARN(init_q, init_d, load_init, '0, clk_i, rst_ni)
-  `FFLARN(desc_q, desc_d, load_desc, '0, clk_i, rst_ni)
+  // `FFLARN(busy_q, busy_d, load_busy, '0, clk_i, rst_ni)
+  // `FFLARN(init_q, init_d, load_init, '0, clk_i, rst_ni)
+  // `FFLARN(desc_q, desc_d, load_desc, '0, clk_i, rst_ni)
+
+  // instead of flopping, don't use any flops in order to speed up by 1 cycle
+  assign busy_q = busy_d;
+  assign init_q = init_d;
+  assign desc_q = desc_d;
 
   // pragma translate_off
   `ifndef VERILATOR
